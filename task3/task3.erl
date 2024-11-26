@@ -13,10 +13,11 @@ start() ->
 
     timer:sleep(500),
     lists:foreach(fun(Id) ->
-        TruckPid = spawn(fun() -> truck(Id, TruckCapacity) end),
+        TruckPid = spawn(fun() -> truck(Id, TruckCapacity, undefined) end),
         put({truck, Id}, TruckPid),
         BeltPid = spawn(fun() -> belt(Id, TruckPid, TruckCapacity, ProducerPid) end),
-        put({belt, Id}, BeltPid)
+        put({belt, Id}, BeltPid),
+        TruckPid ! {set_belt_pid, BeltPid}
     end, lists:seq(1, NBelts)),
 
     receive
@@ -64,6 +65,13 @@ belt(BeltId, TruckPid, TruckCapacity, ProducerPid) ->
     io:format("CONVEYOR BELT: Belt ~p started working...~n", [BeltId]),
     belt_loop(BeltId, TruckPid, TruckCapacity, ProducerPid).
 
+belt_work(BeltId, TruckPid, TruckCapacity, ProducerPid) ->
+    receive
+        {available} ->
+            io:format("CONVEYOR BELT: Belt ~p WORKING...~n", [BeltId]),
+            belt_loop(BeltId, TruckPid, TruckCapacity, ProducerPid)        
+    end.
+
 belt_loop(BeltId, TruckPid, TruckCapacity, ProducerPid) ->
     io:format("CONVEYOR BELT: Belt ~p requesting a package...~n", [BeltId]),
     ProducerPid ! {request_package, self()},
@@ -76,40 +84,51 @@ belt_loop(BeltId, TruckPid, TruckCapacity, ProducerPid) ->
         {no_package} ->
             io:format("CONVEYOR BELT: Belt ~p DID NOT receive a package.~n", [BeltId]),
             timer:sleep(1000),
-            belt_loop(BeltId, TruckPid, TruckCapacity, ProducerPid)
+            belt_loop(BeltId, TruckPid, TruckCapacity, ProducerPid);
+        {not_available} ->
+            io:format("CONVEYOR BELT: Belt ~p STOP.~n", [BeltId]),
+            belt_work(BeltId, TruckPid, TruckCapacity, ProducerPid)
     end.
+
 % ----------------------------------------------------------
 
 
 
 % --------------------CODE FOR THE TRUCKS--------------------
-truck(TruckId, TruckCapacity) ->
+truck(TruckId, TruckCapacity, BeltPid) ->
     io:format("TRUCK: Truck ~p started waiting for packages...~n", [TruckId]),
-    truck_loop(TruckId, TruckCapacity, 0).
+    truck_loop(TruckId, TruckCapacity, 0, BeltPid).
 
-truck_loop(TruckId, TruckCapacity, CurrentLoad) ->
+truck_loop(TruckId, TruckCapacity, CurrentLoad, BeltPid) ->
     receive
+        {set_belt_pid, NewBeltPid} ->
+            io:format("TRUCK: Truck ~p updated BeltPid: ~p~n", [TruckId, NewBeltPid]),
+            truck_loop(TruckId, TruckCapacity, CurrentLoad, NewBeltPid);
         {add_package, Package} ->
             TotalLoad = CurrentLoad + Package,
             if
                 TotalLoad > TruckCapacity ->
                     io:format("TRUCK: Truck ~p is overloaded because current load is ~p and received package with size ~p. Swapping trucks...~n", [TruckId, CurrentLoad, Package]),
-                    timer:sleep(5000),
+                    BeltPid ! {not_available},
+                    timer:sleep(rand:uniform(2500)+2500),
+                    BeltPid ! {available},
                     NewTruckId = TruckId + 10,
                     self() ! {add_package, Package},
-                    truck_loop(NewTruckId, TruckCapacity, 0);
+                    truck_loop(NewTruckId, TruckCapacity, 0, BeltPid);
                 TotalLoad =:= TruckCapacity ->
                     io:format("TRUCK: Truck ~p is full. Swapping trucks...~n", [TruckId]),
-                    timer:sleep(5000),
+                    BeltPid ! {not_available},
+                   timer:sleep(rand:uniform(2500)+2500),
+                    BeltPid ! {available},
                     NewTruckId = TruckId + 10,
-                    truck_loop(NewTruckId, TruckCapacity, 0);
+                    truck_loop(NewTruckId, TruckCapacity, 0, BeltPid);
                 TotalLoad < TruckCapacity ->
                     io:format("TRUCK: Added package with size ~p to truck ~p. Current load: ~p.~n", [Package, TruckId, TotalLoad]),
                     timer:sleep(300),
-                    truck_loop(TruckId, TruckCapacity, TotalLoad)
+                    truck_loop(TruckId, TruckCapacity, TotalLoad, BeltPid)
             end;
         _ ->
             io:format("TRUCK: Truck ~p waiting for packages...~n", [TruckId]),
-            truck_loop(TruckId, TruckCapacity, CurrentLoad)
+            truck_loop(TruckId, TruckCapacity, CurrentLoad, BeltPid)
     end.
 % -----------------------------------------------------------
