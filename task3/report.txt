@@ -1,0 +1,15 @@
+There is no overbooking because:
+- For each conveyor belt there is only one truck associated;
+- We use a producer that sends packages with a given (random) size to all the belts through a channel;
+- Trucks and belts operate concurrently but are isolated in their state management. This ensures that a package is only sent to a belt when explicitly requested and each truck processes its own packages without interference from others;
+- The producer, belts and trucks communicate with messages between processes.
+
+All this aspects ensure that there is no overbooking on package sending.
+
+Additional functionality -> package size:
+In the previous task we used a fixed size of 2. In this task we simply use a rand:uniform to generate a random number between 0 and the truck capacity.
+
+Additional functionality -> belt waits for truck replacement:
+The difference between the previous task and this one (on the code) is the fact that we added a new function to the belt, in order to stop the belt when there's a truck replacement. This function ensures that the belt stops sending packages (for a random period of time). This is ensured because the belt receives a message to stop working when the trucks start being swapped and receives another message to start working when the process is complete.
+
+Note: We have a scan for the user to indicate the number of conveyor belts and the maximum capacity of each truck.
